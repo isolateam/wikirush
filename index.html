@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LinkRace — Live Wikipedia</title>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--sub:#666;--card:#f4f4f5;--acc:#2b6cb0;--bd:#ddd;}
+@media (prefers-color-scheme: dark){body{--bg:#15161a;--fg:#eee;--sub:#999;--card:#212227;--bd:#333;}}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:0}
+#app{max-width:85vw;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--sub);font-size:14px;margin-bottom:16px}
+input,select{width:100%;padding:12px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--fg);font-size:16px;margin-bottom:10px}
+button{padding:12px 18px;border-radius:10px;border:none;background:var(--acc);color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:10px}
+button.ghost{background:var(--card);color:var(--fg);border:1px solid var(--bd)}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:14px}
+.code{font-size:32px;font-weight:800;letter-spacing:4px;text-align:center;margin:8px 0}
+.player{display:flex;justify-content:space-between;padding:8px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--bd);margin-bottom:6px;font-size:14px}
+.timer{font-size:40px;font-weight:800;text-align:center;margin:14px 0}
+.article{background:#fff;color:#202122}
+.article h2{margin:0 0 10px;font-family:"Linux Libertine","Georgia",Times,serif;font-size:1.8em;font-weight:400;border-bottom:1px solid #a2a9b1;padding-bottom:6px}
+.wp-body{font-family:sans-serif;font-size:15px;line-height:1.6;max-height:85vh;overflow-y:auto;padding-right:4px}
+.wp-body:after{content:"";display:table;clear:both}
+.wp-body p{margin:0 0 1em}
+.wp-body a{color:#0645ad;text-decoration:none;cursor:pointer}
+.wp-body a:hover{text-decoration:underline}
+.no-nav a{color:inherit!important;cursor:default!important;pointer-events:none}
+.wp-body b{font-weight:700}
+.wp-body img{max-width:100%;height:auto}
+.wp-body .infobox{float:right;clear:right;margin:0 0 1em 1em;border:1px solid #a2a9b1;background:#f8f9fa;padding:6px;font-size:0.85em;max-width:270px}
+.wp-body .infobox td,.wp-body .infobox th{padding:2px 4px;vertical-align:top}
+.wp-body .thumb{float:right;clear:right;margin:0 0 1em 1em;max-width:220px;font-size:0.85em;background:none}
+.wp-body .thumbinner{border:1px solid #c8ccd1;padding:3px;background:#f8f9fa;text-align:center}
+.wp-body sup.reference a{color:#0645ad}
+.wp-body table.wikitable{border-collapse:collapse;margin:0.5em 0;font-size:0.9em}
+.wp-body table.wikitable td,.wp-body table.wikitable th{border:1px solid #a2a9b1;padding:4px 8px}
+.trail{font-size:12px;color:var(--sub);margin-bottom:10px}
+.winner{font-size:20px;font-weight:800;color:var(--acc);margin-bottom:8px}
+.err{color:#e53e3e;font-size:13px;min-height:16px}
+footer{color:var(--sub);font-size:11px;margin-top:24px;line-height:1.5}
+</style>
+</head>
+<body><div id="app">Loading…</div>
+<script>
+const API="https://en.wikipedia.org/w/api.php?origin=*&format=json&";
+const DEFAULT_STUDY_SECONDS=60;
+const app=document.getElementById('app');
+let peer,conns=[],hostConn,isHost=false,name="",code="";
+let state={phase:'home',start:null,target:null,phaseStart:0,studySeconds:DEFAULT_STUDY_SECONDS,players:{}};
+let myPath=[],curArticle=null,timerInt=null;
+const myId=()=>peer.id;
+
+async function fetchRandomTitle(){
+  const r=await fetch(API+"action=query&list=random&rnnamespace=0&rnfilterredir=nonredirects&rnlimit=1");
+  const d=await r.json();
+  return d.query.random[0].title;
+}
+const NS_SKIP=/^(File|Category|Help|Wikipedia|Template|Special|Portal|Talk|User|Draft|Module|MediaWiki):/i;
+async function fetchArticle(title){
+  const r=await fetch(API+"action=parse&redirects=1&prop=text&disableeditsection=1&disabletoc=0&page="+encodeURIComponent(title));
+  const d=await r.json();
+  if(!d.parse) return {title,html:'<p><i>(article not found — go back and try another link)</i></p>'};
+  return {title:d.parse.title,html:d.parse.text['*']};
+}
+function attachLinks(container){
+  container.onclick=e=>{
+    const a=e.target.closest('a'); if(!a)return;
+    e.preventDefault();
+    const href=a.getAttribute('href')||'';
+    const m=href.match(/^\/wiki\/([^#?]+)/); if(!m)return;
+    const title=decodeURIComponent(m[1]).replace(/_/g,' ');
+    if(NS_SKIP.test(title))return;
+    clickLink(title);
+  };
+}
+
+function renderHome(){
+  app.innerHTML=`<h1>🔗 LinkRace — Live Wikipedia</h1><div class="sub">Real Wikipedia articles, real links, no search bar. Study the target, then race.</div>
+  <div class="card"><input id="nm" placeholder="Your name" maxlength="18">
+  <button id="hostBtn">Host a new race</button>
+  <div style="display:flex;gap:8px"><input id="joinCode" placeholder="ROOM CODE" maxlength="6" style="text-transform:uppercase"><button id="joinBtn" class="ghost">Join</button></div>
+  <div class="err" id="homeErr"></div></div>
+  <footer>Runs peer-to-peer in your browser (no server, no accounts). Must be served over http(s) — e.g. GitHub Pages, Netlify, or "python -m http.server" locally — plain double-clicking the file may block networking.</footer>`;
+  document.getElementById('hostBtn').onclick=doHost;
+  document.getElementById('joinBtn').onclick=doJoin;
+}
+
+function broadcast(){
+  const msg={type:'state',state};
+  conns.forEach(c=>c.open&&c.send(msg));
+}
+function setupConn(c){
+  c.on('data',msg=>{
+    if(isHost){
+      if(msg.type==='join'){state.players[c.peer]={name:msg.name,finished:false,finishMs:0,pathLen:1,cur:state.start}; broadcast(); render();}
+      if(msg.type==='progress'){Object.assign(state.players[c.peer],msg.data); broadcast(); render();}
+    } else {
+      if(msg.type==='state'){state=msg.state; render();}
+    }
+  });
+  c.on('close',()=>{if(isHost){delete state.players[c.peer];broadcast();render();}});
+}
+
+async function doHost(){
+  name=document.getElementById('nm').value.trim()||'Host';
+  isHost=true;
+  code=Array.from({length:4},()=>String.fromCharCode(65+Math.floor(Math.random()*26))).join('');
+  peer=new Peer('linkrace-'+code);
+  peer.on('open',async()=>{
+    const [start,target]=await Promise.all([fetchRandomTitle(),fetchRandomTitle()]);
+    state={phase:'lobby',start,target,phaseStart:0,studySeconds:DEFAULT_STUDY_SECONDS,players:{[myId()]:{name,finished:false,finishMs:0,pathLen:1,cur:start}}};
+    render();
+  });
+  peer.on('connection',c=>{conns.push(c);setupConn(c);});
+  peer.on('error',e=>{document.getElementById('homeErr')&&(document.getElementById('homeErr').textContent='Error: '+e.type+' — try again.')});
+}
+function doJoin(){
+  name=document.getElementById('nm').value.trim()||'Player';
+  code=document.getElementById('joinCode').value.trim().toUpperCase();
+  isHost=false;
+  peer=new Peer();
+  peer.on('open',()=>{
+    hostConn=peer.connect('linkrace-'+code);
+    hostConn.on('open',()=>hostConn.send({type:'join',name}));
+    conns=[hostConn];
+    setupConn(hostConn);
+  });
+  peer.on('error',e=>{document.getElementById('homeErr').textContent='Could not join — check the code.'});
+}
+
+function sendProgress(data){
+  if(isHost){Object.assign(state.players[myId()],data);broadcast();render();}
+  else hostConn.send({type:'progress',data});
+}
+
+function render(){
+  if(state.phase==='lobby')renderLobby();
+  else if(state.phase==='study')renderStudy();
+  else if(state.phase==='racing')renderRace();
+}
+function renderLobby(){
+  const studySeconds=Number(state.studySeconds||DEFAULT_STUDY_SECONDS);
+  const list=Object.values(state.players).map(p=>`<div class="player"><span>${p.name}</span><span>ready</span></div>`).join('');
+  app.innerHTML=`<h1>Lobby</h1><div class="sub">Share this code</div>
+  <div class="card"><div class="code">${code}</div>${list}
+  ${isHost?`<label class="sub" for="studyDuration">Study time</label>
+  <select id="studyDuration">${[15,30,45,60,90,120].map(s=>`<option value="${s}" ${s===studySeconds?'selected':''}>${s}s</option>`).join('')}</select>
+  <button id="startBtn">Start race (${Object.keys(state.players).length} joined)</button>`:`<div class="sub">Study time: ${studySeconds}s — waiting for host…</div>`}</div>`;
+  if(isHost){
+    document.getElementById('studyDuration').onchange=e=>{state.studySeconds=Number(e.target.value);broadcast();};
+    document.getElementById('startBtn').onclick=()=>{
+      const chosen=Number(state.studySeconds||DEFAULT_STUDY_SECONDS);
+      state.phase='study';state.phaseStart=Date.now();broadcast();render();
+      clearInterval(timerInt);
+      timerInt=setInterval(()=>{
+        const left=chosen-Math.floor((Date.now()-state.phaseStart)/1000);
+        const t=document.getElementById('studyTimer'); if(t)t.textContent=Math.max(left,0);
+        if(left<=0){clearInterval(timerInt);state.phase='racing';broadcast();render();}
+      },250);
+    };
+  }
+}
+function renderStudy(){
+  const studySeconds=Number(state.studySeconds||DEFAULT_STUDY_SECONDS);
+  const left=Math.max(studySeconds-Math.floor((Date.now()-state.phaseStart)/1000),0);
+  app.innerHTML=`<div class="card article"><h2>Loading…</h2></div>
+  <div class="timer" id="studyTimer">${left}</div>
+  <div class="sub" style="text-align:center">Memorize this — links are disabled, and you won't see it again once the race starts.</div>`;
+  window.scrollTo(0,0);
+  fetchArticle(state.target).then(a=>{
+    const el=app.querySelector('.article');
+    if(el)el.innerHTML=`<h2>${a.title}</h2><div class="wp-body no-nav">${a.html}</div>`;
+  });
+  if(!isHost){
+    clearInterval(timerInt);
+    timerInt=setInterval(()=>{const t=document.getElementById('studyTimer');if(t){const l=Math.max(studySeconds-Math.floor((Date.now()-state.phaseStart)/1000),0);t.textContent=l;}},250);
+  }
+}
+async function renderRace(){
+  if(!myPath.length){myPath=[state.start];curArticle=await fetchArticle(state.start);}
+  const me=state.players[myId()]||{};
+  const finishers=Object.values(state.players).filter(p=>p.finished).sort((a,b)=>a.finishMs-b.finishMs);
+  let fin=finishers.length?`<div class="card"><div class="winner">🏁 ${finishers[0].name} found it first!</div>${finishers.map((p,i)=>`<div class="player"><span>${i+1}. ${p.name}</span><span>${(p.finishMs/1000).toFixed(1)}s · ${p.pathLen} clicks</span></div>`).join('')}</div>`:'';
+  app.innerHTML=`<h1>Race!</h1><div class="trail">Path: ${myPath.join(' → ')}</div>
+  ${fin}
+  <div class="card article"><h2>${curArticle.title}</h2><div class="wp-body">${curArticle.html}</div></div>
+  ${me.finished?'<div class="sub">You made it! Waiting for others…</div>':'<div class="sub">Click any blue link in the text to go there.</div>'}`;
+  attachLinks(app.querySelector('.wp-body'));
+}
+async function clickLink(title){
+  if((state.players[myId()]||{}).finished)return;
+  const a=await fetchArticle(title);
+  myPath.push(a.title);
+  curArticle=a;
+  const norm=s=>s.toLowerCase().replace(/_/g,' ').trim();
+  const won=norm(a.title)===norm(state.target);
+  const studySeconds=Number(state.studySeconds||DEFAULT_STUDY_SECONDS);
+  sendProgress({cur:a.title,pathLen:myPath.length,finished:won,finishMs:won?(Date.now()-state.phaseStart)-studySeconds*1000:0});
+}
+renderHome();
+</script>
+</body></html>
