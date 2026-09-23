@@ -53,6 +53,12 @@ let state={phase:'home',start:null,target:null,phaseStart:0,studySeconds:DEFAULT
 let myPath=[],curArticle=null,timerInt=null;
 const myId=()=>peer.id;
 
+async function resolveTitle(title){
+  const r=await fetch(API+"action=query&redirects=1&titles="+encodeURIComponent(title));
+  const d=await r.json();
+  const page=Object.values(d.query.pages)[0];
+  return (page && !page.missing) ? page.title : null;
+}
 async function fetchRandomTitle(){
   const r=await fetch(API+"action=query&list=random&rnnamespace=0&rnfilterredir=nonredirects&rnlimit=1");
   const d=await r.json();
@@ -146,12 +152,35 @@ function renderLobby(){
   const list=Object.values(state.players).map(p=>`<div class="player"><span>${p.name}</span><span>ready</span></div>`).join('');
   app.innerHTML=`<h1>Lobby</h1><div class="sub">Share this code</div>
   <div class="card"><div class="code">${code}</div>${list}
-  ${isHost?`<label class="sub" for="studyDuration">Study time</label>
+  ${isHost?`<label class="sub" for="customStart">Start article (blank = random)</label>
+  <input id="customStart" placeholder="e.g. Octopus" value="${state.start||''}">
+  <label class="sub" for="customTarget">Target article (blank = random)</label>
+  <input id="customTarget" placeholder="e.g. Bread">
+  <label class="sub" for="studyDuration">Study time</label>
   <select id="studyDuration">${[15,30,45,60,90,120].map(s=>`<option value="${s}" ${s===studySeconds?'selected':''}>${s}s</option>`).join('')}</select>
-  <button id="startBtn">Start race (${Object.keys(state.players).length} joined)</button>`:`<div class="sub">Study time: ${studySeconds}s — waiting for host…</div>`}</div>`;
+  <button id="startBtn">Start race (${Object.keys(state.players).length} joined)</button>
+  <div class="err" id="lobbyErr"></div>`:`<div class="sub">Study time: ${studySeconds}s — waiting for host…</div>`}</div>`;
   if(isHost){
     document.getElementById('studyDuration').onchange=e=>{state.studySeconds=Number(e.target.value);broadcast();};
-    document.getElementById('startBtn').onclick=()=>{
+    document.getElementById('startBtn').onclick=async()=>{
+      const errEl=document.getElementById('lobbyErr');
+      const btn=document.getElementById('startBtn');
+      const customStart=document.getElementById('customStart').value.trim();
+      const customTarget=document.getElementById('customTarget').value.trim();
+      btn.disabled=true; errEl.textContent='';
+      let startTitle=state.start, targetTitle=state.target;
+      if(customStart){
+        const r=await resolveTitle(customStart);
+        if(!r){errEl.textContent='Start article not found on Wikipedia.';btn.disabled=false;return;}
+        startTitle=r;
+      }
+      if(customTarget){
+        const r=await resolveTitle(customTarget);
+        if(!r){errEl.textContent='Target article not found on Wikipedia.';btn.disabled=false;return;}
+        targetTitle=r;
+      }
+      if(startTitle.toLowerCase()===targetTitle.toLowerCase()){errEl.textContent='Start and target must be different articles.';btn.disabled=false;return;}
+      state.start=startTitle; state.target=targetTitle;
       const chosen=Number(state.studySeconds||DEFAULT_STUDY_SECONDS);
       state.phase='study';state.phaseStart=Date.now();broadcast();render();
       clearInterval(timerInt);
@@ -179,16 +208,27 @@ function renderStudy(){
     timerInt=setInterval(()=>{const t=document.getElementById('studyTimer');if(t){const l=Math.max(studySeconds-Math.floor((Date.now()-state.phaseStart)/1000),0);t.textContent=l;}},250);
   }
 }
+let lastRacedTitle=null;
+function raceLeaderboardHtml(){
+  const finishers=Object.values(state.players).filter(p=>p.finished).sort((a,b)=>a.finishMs-b.finishMs);
+  return finishers.length?`<div class="card"><div class="winner">🏁 ${finishers[0].name} found it first!</div>${finishers.map((p,i)=>`<div class="player"><span>${i+1}. ${p.name}</span><span>${(p.finishMs/1000).toFixed(1)}s · ${p.pathLen} clicks</span></div>`).join('')}</div>`:'';
+}
+function updateRaceChrome(){
+  const me=state.players[myId()]||{};
+  const lb=document.getElementById('raceLeaderboard'); if(lb)lb.innerHTML=raceLeaderboardHtml();
+  const trail=document.getElementById('raceTrail'); if(trail)trail.textContent='Path: '+myPath.join(' → ');
+  const status=document.getElementById('raceStatus'); if(status)status.textContent=me.finished?'You made it! Waiting for others…':'Click any blue link in the text to go there.';
+}
 async function renderRace(){
   if(!myPath.length){myPath=[state.start];curArticle=await fetchArticle(state.start);}
-  const me=state.players[myId()]||{};
-  const finishers=Object.values(state.players).filter(p=>p.finished).sort((a,b)=>a.finishMs-b.finishMs);
-  let fin=finishers.length?`<div class="card"><div class="winner">🏁 ${finishers[0].name} found it first!</div>${finishers.map((p,i)=>`<div class="player"><span>${i+1}. ${p.name}</span><span>${(p.finishMs/1000).toFixed(1)}s · ${p.pathLen} clicks</span></div>`).join('')}</div>`:'';
-  app.innerHTML=`<h1>Race!</h1><div class="trail">Path: ${myPath.join(' → ')}</div>
-  ${fin}
-  <div class="card article"><h2>${curArticle.title}</h2><div class="wp-body">${curArticle.html}</div></div>
-  ${me.finished?'<div class="sub">You made it! Waiting for others…</div>':'<div class="sub">Click any blue link in the text to go there.</div>'}`;
-  attachLinks(app.querySelector('.wp-body'));
+  if(curArticle.title===lastRacedTitle){updateRaceChrome();return;}
+  lastRacedTitle=curArticle.title;
+  app.innerHTML=`<h1>Race!</h1><div class="trail" id="raceTrail"></div>
+  <div id="raceLeaderboard"></div>
+  <div class="card article"><h2>${curArticle.title}</h2><div class="wp-body" id="raceBody">${curArticle.html}</div></div>
+  <div class="sub" id="raceStatus"></div>`;
+  attachLinks(document.getElementById('raceBody'));
+  updateRaceChrome();
 }
 async function clickLink(title){
   if((state.players[myId()]||{}).finished)return;
