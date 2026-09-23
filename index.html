@@ -83,6 +83,17 @@ function attachLinks(container){
   };
 }
 
+function blockFindShortcuts(){
+  window.addEventListener('keydown',event=>{
+    const key=(event.key||'').toLowerCase();
+    const isFindShortcut=(event.ctrlKey||event.metaKey) && (key==='f' || key==='g');
+    if(isFindShortcut){
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
+}
+
 function renderHome(){
   app.innerHTML=`<h1>🔗 LinkRace — Live Wikipedia</h1><div class="sub">Real Wikipedia articles, real links, no search bar. Study the target, then race.</div>
   <div class="card"><input id="nm" placeholder="Your name" maxlength="18">
@@ -240,6 +251,7 @@ async function clickLink(title){
   const studySeconds=Number(state.studySeconds||DEFAULT_STUDY_SECONDS);
   sendProgress({cur:a.title,pathLen:myPath.length,finished:won,finishMs:won?(Date.now()-state.phaseStart)-studySeconds*1000:0});
 }
+blockFindShortcuts();
 renderHome();
 </script>
 </body></html>
