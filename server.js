@@ -3,7 +3,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(process.env.PORT || 2100);
 const ADMIN_USERNAME = 'b';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const DATA_DIR = process.env.DATA_DIR || (process.env.VERCEL ? '/tmp/wikirush-data' : path.join(__dirname, 'data'));
