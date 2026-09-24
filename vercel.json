@@ -1,8 +1,16 @@
 {
-  "rewrites": [
+  "version": 2,
+  "routes": [
     {
-      "source": "/",
-      "destination": "/index.html"
+      "src": "^/api(?:/(.*))?$",
+      "dest": "/api/[...route].js"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "^/(.*)$",
+      "dest": "/index.html"
     }
   ]
 }
