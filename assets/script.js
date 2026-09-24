@@ -107,7 +107,7 @@ function loginAccount({username,password}){
 }
 
 function renderTopBar(){
-  return `<div class="topbar"><button id="homeBtn" class="home-btn" type="button">🏠 Home</button><h2>LinkRace</h2></div>`;
+  return `<div class="topbar"><button id="homeBtn" class="home-btn" type="button">🏠 Home</button><h2>WikiRush</h2></div>`;
 }
 
 function clearStudyTimer(){
@@ -213,7 +213,7 @@ function renderAuthScreen(){
 function renderHome(){
   if(!getCurrentUser()) return renderAuthScreen();
   const currentUser=getCurrentUser();
-  app.innerHTML=`${renderTopBar()}<h1>🔗 LinkRace — Live Wikipedia</h1>
+  app.innerHTML=`${renderTopBar()}<h1>🔗 WikiRush — Wikipedia Racing</h1>
   <div class="sub">Welcome back, ${currentUser.username}. Your ranked account is ready.</div>
   <div class="card"><input id="nm" placeholder="Your name" maxlength="18" value="${currentUser.username}">
   <button id="hostBtn">Host a new race</button>
