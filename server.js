@@ -3,9 +3,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const PORT = Number(process.env.PORT || 2100);
-const ADMIN_USERNAME = 'b';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const PORT = 2100;
+const ADMIN_USERNAME = 'bach';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'bach-admin-2100';
 const DATA_DIR = process.env.DATA_DIR || (process.env.VERCEL ? '/tmp/wikirush-data' : path.join(__dirname, 'data'));
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const SESSION_COOKIE = 'wikirush_session';
@@ -15,9 +15,6 @@ let storageInitialized = false;
 
 function initializeStorage() {
   if (storageInitialized) return;
-  if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 12) {
-    throw new Error('Set ADMIN_PASSWORD to a random value of at least 12 characters.');
-  }
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     if (!fs.existsSync(ACCOUNTS_FILE)) fs.writeFileSync(ACCOUNTS_FILE, '[]\n');
@@ -241,6 +238,6 @@ module.exports = handler;
 if (require.main === module) {
   http.createServer(handler).listen(PORT, () => {
     console.log(`WikiRush server running at http://localhost:${PORT}`);
-    console.log('Admin account: b (password supplied through ADMIN_PASSWORD)');
+    console.log(`Admin account: ${ADMIN_USERNAME} (set ADMIN_PASSWORD to override the default password)`);
   });
 }

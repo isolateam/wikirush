@@ -1,9 +1,10 @@
 ```powershell
-$env:ADMIN_PASSWORD = 'use-a-private-password-at-least-12-characters'
 npm start
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:2100`.
+
+The server always uses port `2100`, so open `http://localhost:2100`. `ADMIN_PASSWORD` is optional; if omitted, the default admin password is `bach-admin-2100`. Set `ADMIN_PASSWORD` in production to replace it.
 
 ## Vercel deployment
 
@@ -11,7 +12,7 @@ Vercel's deployed `/var/task` directory is read-only. The server automatically u
 
 For production, set `DATA_DIR` only when deploying to a runtime with a writable persistent volume, or replace the JSON storage functions in `server.js` with a hosted database such as Postgres, Turso, or another persistent store. Also configure `ADMIN_PASSWORD` as a Vercel environment variable with at least 12 characters.
 
-User `b` is created as the only admin account on first startup. The password comes from `ADMIN_PASSWORD` and is never sent to the browser.
+User `bach` is created as the only admin account on first startup. The password comes from `ADMIN_PASSWORD`, or defaults to `bach-admin-2100` when unset.
 
 ## Admin Elo controls
 
