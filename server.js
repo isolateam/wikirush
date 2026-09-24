@@ -11,17 +11,22 @@ const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const SESSION_COOKIE = 'wikirush_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const sessions = new Map();
+let storageInitialized = false;
 
-if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 12) {
-  throw new Error('Set ADMIN_PASSWORD to a random value of at least 12 characters before starting the server.');
+function initializeStorage() {
+  if (storageInitialized) return;
+  if (!ADMIN_PASSWORD || ADMIN_PASSWORD.length < 12) {
+    throw new Error('Set ADMIN_PASSWORD to a random value of at least 12 characters.');
+  }
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(ACCOUNTS_FILE)) fs.writeFileSync(ACCOUNTS_FILE, '[]\n');
+  } catch (error) {
+    throw new Error(`Cannot create account storage at ${DATA_DIR}. Set DATA_DIR to a writable persistent directory or connect a database. ${error.message}`);
+  }
+  ensureAdminAccount();
+  storageInitialized = true;
 }
-
-try {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-} catch (error) {
-  throw new Error(`Cannot create account storage at ${DATA_DIR}. Set DATA_DIR to a writable persistent directory or connect a database. ${error.message}`);
-}
-if (!fs.existsSync(ACCOUNTS_FILE)) fs.writeFileSync(ACCOUNTS_FILE, '[]\n');
 
 function readAccounts() {
   return JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf8'));
@@ -218,10 +223,16 @@ function serveStatic(response, pathname) {
   fs.createReadStream(filePath).pipe(response);
 }
 
-ensureAdminAccount();
 function handler(request, response) {
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
-  if (url.pathname.startsWith('/api/')) return handleApi(request, response, url.pathname);
+  if (url.pathname.startsWith('/api/')) {
+    try {
+      initializeStorage();
+    } catch (error) {
+      return sendError(response, 500, error.message);
+    }
+    return handleApi(request, response, url.pathname);
+  }
   return serveStatic(response, url.pathname);
 }
 
