@@ -7,6 +7,7 @@ const BASE_ELO_CHANGE=20;
 const ACCOUNT_KEY='linkrace_accounts';
 const SESSION_KEY='linkrace_session';
 const app=document.getElementById('app');
+let currentUser=null;
 let peer,conns=[],hostConn,isHost=false,name="",code="";
 let state={phase:'home',start:null,target:null,phaseStart:0,studySeconds:DEFAULT_STUDY_SECONDS,ranked:false,rankedResult:null,players:{}};
 let myPath=[],curArticle=null,timerInt=null;
@@ -23,26 +24,24 @@ const RANK_TIERS=[
 const myId=()=>peer.id;
 
 function readAccounts(){
-  try{return JSON.parse(localStorage.getItem(ACCOUNT_KEY)||'[]');}catch{return []}
+  return [];
 }
-function writeAccounts(accounts){localStorage.setItem(ACCOUNT_KEY,JSON.stringify(accounts));}
+function writeAccounts(){return undefined;}
 function readSession(){
   try{return JSON.parse(localStorage.getItem(SESSION_KEY)||'null');}catch{return null}
 }
 function writeSession(user){localStorage.setItem(SESSION_KEY,JSON.stringify({id:user.id,username:user.username}));}
 function clearSession(){localStorage.removeItem(SESSION_KEY);}
 function getCurrentUser(){
-  const session=readSession();
-  if(!session) return null;
-  const accounts=readAccounts();
-  return accounts.find(a=>a.id===session.id && a.username===session.username) || null;
+  return currentUser;
 }
 function setCurrentUser(user){
-  writeSession(user);
+  currentUser=user;
   name=user.username;
 }
-function logoutCurrentUser(){
-  clearSession();
+async function logoutCurrentUser(){
+  await fetch('/api/logout',{method:'POST',credentials:'same-origin'});
+  currentUser=null;
   name='';
   renderHome();
 }
@@ -61,16 +60,7 @@ function rankNameForElo(elo){
   return tier.divisions[divisionIndex];
 }
 function persistRankedDelta(delta){
-  const session=readSession();
-  if(!session)return;
-  const accounts=readAccounts();
-  const account=accounts.find(item=>item.id===session.id);
-  if(!account)return;
-  account.stats=account.stats||{};
-  account.stats.elo=Math.max(0,(account.stats.elo||1000)+delta);
-  account.stats.rank=account.stats.rank||1;
-  account.stats.rankedGames=(account.stats.rankedGames||0)+1;
-  writeAccounts(accounts);
+  return fetch('/api/me/elo',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({delta})});
 }
 function rankedDelta({won,clicks,seconds}){
   const clickPerformance=(AVERAGE_CLICKS-clicks)/AVERAGE_CLICKS;
@@ -93,35 +83,17 @@ function uid(){
 function normalizeUsername(value){
   return (value||'').trim().replace(/\s+/g,' ').slice(0,18);
 }
-function createAccount({username,email,password}){
-  const accounts=readAccounts();
-  const cleanUsername=normalizeUsername(username);
-  const cleanEmail=(email||'').trim().toLowerCase();
-  const cleanPassword=(password||'').trim();
-  if(!cleanUsername||!cleanPassword){throw new Error('Username and password are required.');}
-  if(accounts.some(a=>a.username.toLowerCase()===cleanUsername.toLowerCase())){throw new Error('That username is already taken.');}
-  if(cleanEmail && accounts.some(a=>a.email && a.email.toLowerCase()===cleanEmail)){throw new Error('That email is already registered.');}
-  const account={
-    id:uid(),
-    username:cleanUsername,
-    email:cleanEmail,
-    password:cleanPassword,
-    createdAt:Date.now(),
-    stats:{wins:0,losses:0,elo:1000,rank:1}
-  };
-  accounts.push(account);
-  writeAccounts(accounts);
-  return account;
+async function createAccount({username,password}){
+  const response=await fetch('/api/register',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||'Could not create account.');
+  return data.account;
 }
-function loginAccount({username,password}){
-  const accounts=readAccounts();
-  const cleanUsername=normalizeUsername(username);
-  const cleanPassword=(password||'').trim();
-  const account=accounts.find(a=>(a.username.toLowerCase()===cleanUsername.toLowerCase() || a.email.toLowerCase()===cleanUsername.toLowerCase()) && a.password===cleanPassword);
-  if(!account){throw new Error('Invalid username/email or password.');}
-  writeSession(account);
-  name=account.username;
-  return account;
+async function loginAccount({username,password}){
+  const response=await fetch('/api/login',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||'Invalid username or password.');
+  return data.account;
 }
 
 function renderTopBar(){
@@ -196,23 +168,21 @@ function renderAuthScreen(){
     const wrap=document.getElementById('authFormWrap');
     const isRegister=mode==='register';
     wrap.innerHTML=`<div class="card" style="margin:0;padding:16px;border-radius:12px">
-      <input id="authUser" placeholder="${isRegister?'Choose username':'Username or email'}" maxlength="18">
-      ${isRegister?`<input id="authEmail" placeholder="Email (optional)" maxlength="64">`:''}
+      <input id="authUser" placeholder="${isRegister?'Choose username':'Username'}" maxlength="18">
       <input id="authPass" type="password" placeholder="Password" maxlength="32">
       <button id="authSubmitBtn" type="button">${isRegister?'Create account':'Log in'}</button>
     </div>`;
-    document.getElementById('authSubmitBtn').onclick=()=>{
+    document.getElementById('authSubmitBtn').onclick=async()=>{
       try{
         const username=document.getElementById('authUser').value;
         const password=document.getElementById('authPass').value;
-        const email=document.getElementById('authEmail')?.value||'';
         if(isRegister){
-          const user=createAccount({username,email,password});
+          const user=await createAccount({username,password});
           setCurrentUser(user);
           renderHome();
           return;
         }
-        const user=loginAccount({username,password});
+        const user=await loginAccount({username,password});
         setCurrentUser(user);
         renderHome();
       }catch(err){
@@ -231,6 +201,7 @@ function renderAuthScreen(){
 function renderHome(){
   if(!getCurrentUser()) return renderAuthScreen();
   const currentUser=getCurrentUser();
+  const adminControls=currentUser.role==='admin'?`<div class="card"><div class="sub" style="margin:0">Admin controls</div><button id="resetAllEloBtn" class="secondary">Reset everyone to 300 Elo</button><div style="display:flex;gap:8px"><input id="adminUsername" placeholder="Username" maxlength="18"><input id="adminElo" type="number" min="0" max="100000" placeholder="Elo"><button id="setEloBtn" class="ghost">Set Elo</button></div><div class="err" id="adminErr"></div></div>`:'';
   app.innerHTML=`${renderTopBar()}<h1>🔗 WikiRush — Wikipedia Racing</h1>
   <div class="sub">Welcome back, ${currentUser.username}. Your ranked account is ready.</div>
   <div class="card"><input id="nm" placeholder="Your name" maxlength="18" value="${currentUser.username}">
@@ -239,11 +210,27 @@ function renderHome(){
   <div style="display:flex;gap:8px"><input id="joinCode" placeholder="ROOM CODE" maxlength="6" style="text-transform:uppercase"><button id="joinBtn" class="ghost">Join</button></div>
   <div class="sub">Ranked matches pair players within ${RANKED_ELO_RANGE} Elo. Baseline: ${AVERAGE_CLICKS} clicks and ${AVERAGE_RACE_SECONDS}s.</div>
   <div class="err" id="homeErr"></div></div>
-  <div class="card"><div class="sub" style="margin:0">Account</div><div class="player"><span>Username</span><span>${currentUser.username}</span></div><div class="player"><span>Rank</span><span>${rankNameForElo(currentUser.stats.elo || 1000)}</span></div><div class="player"><span>Elo</span><span>${currentUser.stats.elo || 1000}</span></div></div>
+  <div class="card"><div class="sub" style="margin:0">Account</div><div class="player"><span>Username</span><span>${currentUser.username}</span></div><div class="player"><span>Rank</span><span>${rankNameForElo(currentUser.stats.elo || 300)}</span></div><div class="player"><span>Elo</span><span>${currentUser.stats.elo || 300}</span></div></div>
+    <div class="card"><div class="sub" style="margin:0">Account</div><div class="player"><span>Username</span><span>${currentUser.username}</span></div><div class="player"><span>Rank</span><span>${rankNameForElo(currentUser.stats.elo || 300)}</span></div><div class="player"><span>Elo</span><span>${currentUser.stats.elo || 300}</span></div></div>${adminControls}
   <footer>Runs peer-to-peer in your browser (no server, no accounts). Must be served over http(s) — e.g. GitHub Pages, Netlify, or "python -m http.server" locally — plain double-clicking the file may block networking.</footer>`;
   document.getElementById('hostBtn').onclick=doHost;
   document.getElementById('rankedBtn').onclick=()=>doHost(true);
   document.getElementById('joinBtn').onclick=doJoin;
+  if(currentUser.role==='admin'){
+    document.getElementById('resetAllEloBtn').onclick=async()=>{
+      const response=await fetch('/api/admin/reset-elo',{method:'POST',credentials:'same-origin'});
+      const data=await response.json();
+      if(!response.ok){document.getElementById('adminErr').textContent=data.error||'Reset failed.';return;}
+      document.getElementById('adminErr').textContent=`Reset ${data.updated} accounts to 300 Elo.`;
+    };
+    document.getElementById('setEloBtn').onclick=async()=>{
+      const username=document.getElementById('adminUsername').value.trim();
+      const elo=Number(document.getElementById('adminElo').value);
+      const response=await fetch('/api/admin/accounts/'+encodeURIComponent(username)+'/elo',{method:'PATCH',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({elo})});
+      const data=await response.json();
+      document.getElementById('adminErr').textContent=response.ok?`${data.account.username} is now ${data.account.stats.elo} Elo.`:(data.error||'Elo update failed.');
+    };
+  }
   const homeBtn=document.getElementById('homeBtn'); if(homeBtn)homeBtn.onclick=logoutCurrentUser;
 }
 
@@ -255,12 +242,12 @@ function setupConn(c){
   c.on('data',msg=>{
     if(isHost){
       if(msg.type==='join'){
-        if(state.ranked && Math.abs((msg.elo||1000)-currentPlayerStats().elo)>RANKED_ELO_RANGE){
+        if(state.ranked && Math.abs((msg.elo||300)-currentPlayerStats().elo)>RANKED_ELO_RANGE){
           c.send({type:'rankedReject',message:`Ranked queue only accepts players within ${RANKED_ELO_RANGE} Elo.`});
           c.close();
           return;
         }
-        state.players[c.peer]={name:msg.name,rank:msg.rank||1,elo:msg.elo||1000,finished:false,finishMs:0,pathLen:1,cur:state.start,rerollVote:false}; broadcast(); render();
+        state.players[c.peer]={name:msg.name,rank:msg.rank||1,elo:msg.elo||300,finished:false,finishMs:0,pathLen:1,cur:state.start,rerollVote:false}; broadcast(); render();
       }
       if(msg.type==='progress'){
         Object.assign(state.players[c.peer],msg.data);
@@ -341,7 +328,7 @@ function render(){
 }
 function renderLobby(){
   const studySeconds=Number(state.studySeconds||DEFAULT_STUDY_SECONDS);
-  const list=Object.values(state.players).map(p=>`<div class="player"><span>${p.name}</span><span>${p.rank||rankNameForElo(p.elo||1000)} · ${p.elo||1000} Elo</span></div>`).join('');
+  const list=Object.values(state.players).map(p=>`<div class="player"><span>${p.name}</span><span>${p.rank||rankNameForElo(p.elo||300)} · ${p.elo||300} Elo</span></div>`).join('');
   app.innerHTML=`${renderTopBar()}<h1>${state.ranked?'Ranked queue':'Lobby'}</h1><div class="sub">${state.ranked?'Players must be within '+RANKED_ELO_RANGE+' Elo of the host.':'Share this code'}</div>
   <div class="card"><div class="code">${code}</div>${list}
   ${isHost?`<label class="sub" for="customStart">Start article (blank = random)</label>
@@ -485,5 +472,17 @@ async function clickLink(title){
   const studySeconds=Number(state.studySeconds||DEFAULT_STUDY_SECONDS);
   sendProgress({cur:a.title,pathLen:myPath.length,finished:won,finishMs:won?(Date.now()-state.phaseStart)-studySeconds*1000:0});
 }
+async function bootstrapAuth(){
+  try{
+    const response=await fetch('/api/me',{credentials:'same-origin'});
+    if(response.ok){
+      const data=await response.json();
+      setCurrentUser(data.account);
+    }
+  }catch(error){
+    console.warn('Account server unavailable.',error);
+  }
+  renderHome();
+}
 blockFindShortcuts();
-renderHome();
+bootstrapAuth();

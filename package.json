@@ -1,0 +1,10 @@
+{
+  "name": "wikirush",
+  "private": true,
+  "version": "1.0.0",
+  "description": "WikiRush game server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
