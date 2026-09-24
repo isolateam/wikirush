@@ -219,11 +219,17 @@ function serveStatic(response, pathname) {
 }
 
 ensureAdminAccount();
-http.createServer((request, response) => {
+function handler(request, response) {
   const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
   if (url.pathname.startsWith('/api/')) return handleApi(request, response, url.pathname);
   return serveStatic(response, url.pathname);
-}).listen(PORT, () => {
-  console.log(`WikiRush server running at http://localhost:${PORT}`);
-  console.log('Admin account: b (password supplied through ADMIN_PASSWORD)');
-});
+}
+
+module.exports = handler;
+
+if (require.main === module) {
+  http.createServer(handler).listen(PORT, () => {
+    console.log(`WikiRush server running at http://localhost:${PORT}`);
+    console.log('Admin account: b (password supplied through ADMIN_PASSWORD)');
+  });
+}
