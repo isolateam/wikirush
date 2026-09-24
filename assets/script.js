@@ -11,6 +11,15 @@ let peer,conns=[],hostConn,isHost=false,name="",code="";
 let state={phase:'home',start:null,target:null,phaseStart:0,studySeconds:DEFAULT_STUDY_SECONDS,ranked:false,rankedResult:null,players:{}};
 let myPath=[],curArticle=null,timerInt=null;
 let appliedRankedResultId=null;
+const RANK_TIERS=[
+  {name:'Tourist',minElo:0,maxElo:399,divisions:['Tourist 3','Tourist 2','Tourist 1']},
+  {name:'Pagehopper',minElo:400,maxElo:799,divisions:['Pagehopper 3','Pagehopper 2','Pagehopper 1']},
+  {name:'Navigator',minElo:800,maxElo:1199,divisions:['Navigator 3','Navigator 2','Navigator 1']},
+  {name:'Pathfinder',minElo:1200,maxElo:1599,divisions:['Pathfinder 3','Pathfinder 2','Pathfinder 1']},
+  {name:'Educated',minElo:1600,maxElo:1999,divisions:['Educated 3','Educated 2','Educated 1']},
+  {name:'Scholar',minElo:2000,maxElo:2399,divisions:['Scholar 3','Scholar 2','Scholar 1']},
+  {name:'Wikipedia Final Boss',minElo:2400,maxElo:null,divisions:['Wikipedia Final Boss']}
+];
 const myId=()=>peer.id;
 
 function readAccounts(){
@@ -40,7 +49,16 @@ function logoutCurrentUser(){
 function clamp(value,min,max){return Math.min(Math.max(value,min),max);}
 function currentPlayerStats(){
   const user=getCurrentUser();
-  return {rank:user?.stats?.rank||1,elo:user?.stats?.elo||1000};
+  const elo=user?.stats?.elo||1000;
+  return {rank:rankNameForElo(elo),elo};
+}
+function rankNameForElo(elo){
+  const tier=RANK_TIERS.find(item=>elo>=item.minElo && (item.maxElo===null || elo<=item.maxElo)) || RANK_TIERS[0];
+  if(tier.name==='Wikipedia Final Boss')return tier.name;
+  const tierSpan=tier.maxElo-tier.minElo+1;
+  const divisionSize=tierSpan/3;
+  const divisionIndex=Math.min(2,Math.floor((elo-tier.minElo)/divisionSize));
+  return tier.divisions[divisionIndex];
 }
 function persistRankedDelta(delta){
   const session=readSession();
@@ -221,7 +239,7 @@ function renderHome(){
   <div style="display:flex;gap:8px"><input id="joinCode" placeholder="ROOM CODE" maxlength="6" style="text-transform:uppercase"><button id="joinBtn" class="ghost">Join</button></div>
   <div class="sub">Ranked matches pair players within ${RANKED_ELO_RANGE} Elo. Baseline: ${AVERAGE_CLICKS} clicks and ${AVERAGE_RACE_SECONDS}s.</div>
   <div class="err" id="homeErr"></div></div>
-  <div class="card"><div class="sub" style="margin:0">Account</div><div class="player"><span>Username</span><span>${currentUser.username}</span></div><div class="player"><span>Rank</span><span>#${currentUser.stats.rank || 1}</span></div><div class="player"><span>Elo</span><span>${currentUser.stats.elo || 1000}</span></div></div>
+  <div class="card"><div class="sub" style="margin:0">Account</div><div class="player"><span>Username</span><span>${currentUser.username}</span></div><div class="player"><span>Rank</span><span>${rankNameForElo(currentUser.stats.elo || 1000)}</span></div><div class="player"><span>Elo</span><span>${currentUser.stats.elo || 1000}</span></div></div>
   <footer>Runs peer-to-peer in your browser (no server, no accounts). Must be served over http(s) — e.g. GitHub Pages, Netlify, or "python -m http.server" locally — plain double-clicking the file may block networking.</footer>`;
   document.getElementById('hostBtn').onclick=doHost;
   document.getElementById('rankedBtn').onclick=()=>doHost(true);
@@ -323,7 +341,7 @@ function render(){
 }
 function renderLobby(){
   const studySeconds=Number(state.studySeconds||DEFAULT_STUDY_SECONDS);
-  const list=Object.values(state.players).map(p=>`<div class="player"><span>${p.name}</span><span>Rank #${p.rank||1} · ${p.elo||1000} Elo</span></div>`).join('');
+  const list=Object.values(state.players).map(p=>`<div class="player"><span>${p.name}</span><span>${p.rank||rankNameForElo(p.elo||1000)} · ${p.elo||1000} Elo</span></div>`).join('');
   app.innerHTML=`${renderTopBar()}<h1>${state.ranked?'Ranked queue':'Lobby'}</h1><div class="sub">${state.ranked?'Players must be within '+RANKED_ELO_RANGE+' Elo of the host.':'Share this code'}</div>
   <div class="card"><div class="code">${code}</div>${list}
   ${isHost?`<label class="sub" for="customStart">Start article (blank = random)</label>
