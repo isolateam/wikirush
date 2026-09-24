@@ -21,6 +21,8 @@ button{padding:12px 18px;border-radius:10px;border:none;background:linear-gradie
 button.ghost{background:var(--card);color:var(--fg);border:1px solid var(--bd);box-shadow:none}
 button.secondary{background:rgba(124,199,255,0.14);color:var(--acc);border:1px solid rgba(124,199,255,0.3)}
 button:disabled{opacity:0.55;cursor:not-allowed}
+.target-bubble{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:min(88vw,520px);padding:10px 18px;border-radius:999px;background:linear-gradient(135deg,rgba(124,199,255,0.22),rgba(93,164,255,0.38));border:1px solid rgba(124,199,255,0.4);color:var(--fg);font-weight:700;font-size:13px;letter-spacing:0.02em;text-align:center;box-shadow:0 16px 30px rgba(5,12,26,0.42);backdrop-filter:blur(10px);z-index:30;word-break:break-word}
+.target-bubble .tag{display:block;color:var(--sub);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:2px}
 .card{background:linear-gradient(180deg,var(--card),var(--card-2));border:1px solid var(--bd);border-radius:18px;padding:16px;margin-bottom:14px;box-shadow:0 16px 32px rgba(2,6,23,0.28)}
 .code{font-size:32px;font-weight:800;letter-spacing:4px;text-align:center;margin:8px 0;color:var(--acc)}
 .player{display:flex;justify-content:space-between;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid var(--bd);margin-bottom:6px;font-size:14px}
@@ -283,6 +285,8 @@ function renderStudy(){
     broadcast();
     render();
   };
+  const studyTargetBubble=`<div class="target-bubble"><span class="tag">Target</span>${state.target}</div>`;
+  document.body.insertAdjacentHTML('beforeend', studyTargetBubble);
   window.scrollTo(0,0);
   fetchArticle(state.target).then(a=>{
     const el=app.querySelector('.article');
@@ -313,6 +317,9 @@ async function renderRace(){
   <div class="card article"><h2>${curArticle.title}</h2><div class="wp-body" id="raceBody">${curArticle.html}</div></div>
   <div class="sub" id="raceStatus"></div>`;
   const homeBtn=document.getElementById('homeBtn'); if(homeBtn)homeBtn.onclick=resetToHome;
+  const targetBubble=document.querySelector('.target-bubble'); if(targetBubble)targetBubble.remove();
+  const targetBubbleHtml=`<div class="target-bubble"><span class="tag">Target</span>${state.target}</div>`;
+  document.body.insertAdjacentHTML('beforeend', targetBubbleHtml);
   attachLinks(document.getElementById('raceBody'));
   updateRaceChrome();
 }
