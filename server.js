@@ -209,7 +209,7 @@ async function handleApi(request, response, pathname) {
 }
 
 function serveStatic(response, pathname) {
-  if (pathname !== '/' && !pathname.startsWith('/assets/')) return sendError(response, 404, 'File not found.');
+  if (pathname !== '/' && pathname !== '/index.html' && !pathname.startsWith('/assets/')) return sendError(response, 404, 'File not found.');
   const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
   const filePath = path.normalize(path.join(__dirname, relativePath));
   if (!filePath.startsWith(__dirname) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return sendError(response, 404, 'File not found.');
